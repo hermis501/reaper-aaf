@@ -57,6 +57,29 @@ bool OnAction(KbdSectionInfo* sec, int command, int val, int val2, int relmode, 
   return false;
 }
 
+// Win32 menus on Windows; on macOS the same calls go to SWELL, which REAPER provides
+// (third_party/WDL/swell/swell-modstub.mm looks the functions up when the extension loads).
+#ifdef _WIN32
+typedef MENUITEMINFOA MenuItemInfo;
+#define InsertMenuItemUtf8 InsertMenuItemA
+#define GetMenuItemInfoUtf8 GetMenuItemInfoA
+#else
+typedef MENUITEMINFO MenuItemInfo;
+#define InsertMenuItemUtf8 InsertMenuItem
+#define GetMenuItemInfoUtf8 GetMenuItemInfo
+#endif
+
+bool MenuItemText(HMENU m, int pos, char* text, int size)
+{
+  MenuItemInfo mi = {};
+  mi.cbSize = sizeof(mi);
+  mi.fMask = MIIM_TYPE;
+  mi.dwTypeData = text;
+  mi.cch = size;
+  text[0] = 0;
+  return GetMenuItemInfoUtf8(m, pos, TRUE, &mi) && !(mi.fType & MFT_SEPARATOR);
+}
+
 // REAPER's own File menu exports; ours go after the last of these that is present.
 const int kFileMenuAnchors[] = {
     40849,  // File: Export project MIDI...
@@ -79,19 +102,18 @@ void MenuHook(const char* menuidstr, void* menu, int flag)
   if (pos < 0) pos = n;
   // after entries another of these extensions already added, so the exports stay together
   char text[256];
-  while (pos < n && GetMenuStringA(m, pos, text, sizeof(text), MF_BYPOSITION) > 0 &&
-         strncmp(text, "Export project to ", 18) == 0)
+  while (pos < n && MenuItemText(m, pos, text, sizeof(text)) && strncmp(text, "Export project to ", 18) == 0)
     pos++;
   for (const ExportCommand& c : *g_commands)
   {
     if (!c.command) continue;
-    MENUITEMINFOA mi = {};
+    MenuItemInfo mi = {};
     mi.cbSize = sizeof(mi);
     mi.fMask = MIIM_ID | MIIM_TYPE;
     mi.fType = MFT_STRING;
     mi.wID = (UINT)c.command;
     mi.dwTypeData = (char*)c.menuLabel;
-    InsertMenuItemA(m, pos++, TRUE, &mi);
+    InsertMenuItemUtf8(m, pos++, TRUE, &mi);
   }
 }
 

@@ -1,16 +1,17 @@
 """Builds the release package from a Release build.
 
-    cmake -S . -B build -A x64
+    cmake -S . -B build -A x64      (on macOS without -A x64)
     cmake --build build --config Release
     python tools/make_package.py [build/Release folder]
 
-Writes dist/AAF-for-REAPER/ (DLL, command-line tools, README, third-party notices) and
-dist/AAF-for-REAPER-<version>-win64.zip. The version comes from CMakeLists.txt.
+Writes dist/AAF-for-REAPER/ (extension, command-line tools, README, third-party notices) and
+dist/AAF-for-REAPER-<version>-<win64|macos>.zip. The version comes from CMakeLists.txt.
 """
 
 import os
 import re
 import shutil
+import subprocess
 import sys
 import zipfile
 
@@ -18,8 +19,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(ROOT, "dist")
 
 FOLDER = "AAF-for-REAPER"
-DLL = "reaper_aaf-x64.dll"
-TOOLS = ["aaf2rpp.exe", "rpp2aaf.exe", "aafdump.exe"]
+MAC = sys.platform == "darwin"
+PLATFORM = "macos" if MAC else "win64"
+DLL = "reaper_aaf" + (".dylib" if MAC else "-x64.dll")
+TOOLS = [t + ("" if MAC else ".exe") for t in ['aaf2rpp', 'rpp2aaf', 'aafdump']]
 # (source in the repository, path in the package)
 EXTRA = []
 NOTICES = [
@@ -27,6 +30,8 @@ NOTICES = [
     ("pugixml (XML parser)", "third_party/pugixml/LICENSE.md"),
     ("REAPER extension SDK header (Cockos)", "third_party/reaper-sdk/LICENSE"),
 ]
+if MAC:
+    NOTICES.append(("SWELL (Cockos), in the macOS extension", "third_party/WDL/LICENSE"))
 
 
 def version():
@@ -52,6 +57,10 @@ def main():
         os.makedirs(os.path.dirname(os.path.join(out, dst)), exist_ok=True)
         shutil.copy2(os.path.join(ROOT, src), os.path.join(out, dst))
     shutil.copy2(os.path.join(ROOT, "LICENSE"), os.path.join(out, "LICENSE.txt"))
+    if MAC:
+        # ad-hoc signature (Apple silicon refuses to load unsigned code)
+        for name in [DLL] + [os.path.join("command-line", t) for t in TOOLS]:
+            subprocess.run(["codesign", "--force", "--sign", "-", os.path.join(out, name)], check=True)
 
     with open(os.path.join(ROOT, "packaging", "README.md"), encoding="utf-8") as f:
         readme = f.read().replace("{VERSION}", ver)
@@ -65,7 +74,7 @@ def main():
     with open(os.path.join(out, "THIRD-PARTY-NOTICES.txt"), "w", encoding="utf-8", newline="\r\n") as f:
         f.write("\n".join(notices))
 
-    zip_path = os.path.join(DIST, f"{FOLDER}-{ver}-win64.zip")
+    zip_path = os.path.join(DIST, f"{FOLDER}-{ver}-{PLATFORM}.zip")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
         for base, _, files in os.walk(out):
             for name in sorted(files):

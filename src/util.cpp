@@ -13,6 +13,12 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #endif
+#ifdef __APPLE__
+#include <cctype>
+#include <cerrno>
+#include <cstdio>
+#include <xlocale.h>
+#endif
 
 namespace dawp {
 
@@ -246,8 +252,22 @@ std::string FormatDouble(double v)
   if (!std::isfinite(v)) v = 0.0;
   if (v == 0.0) return "0";  // also turns -0 into 0
   char buf[64];
+#ifdef __APPLE__
+  // Apple's libc++ has floating point to_chars only from macOS 13.3: the shortest "%g" form that
+  // reads back exactly, in the C locale (integers in plain notation, as to_chars writes them)
+  static locale_t c = newlocale(LC_ALL_MASK, "C", nullptr);
+  if (std::fabs(v) < 1e15 && v == std::floor(v)) snprintf_l(buf, sizeof(buf), c, "%.0f", v);
+  else
+    for (int prec = 1; prec <= 17; prec++)
+    {
+      snprintf_l(buf, sizeof(buf), c, "%.*g", prec, v);
+      if (strtod_l(buf, nullptr, c) == v) break;
+    }
+  return buf;
+#else
   auto res = std::to_chars(buf, buf + sizeof(buf), v);
   return std::string(buf, res.ptr);
+#endif
 }
 
 bool ParseDouble(const char* s, double& out)
@@ -255,9 +275,20 @@ bool ParseDouble(const char* s, double& out)
   if (!s) return false;
   while (*s == ' ' || *s == '\t' || *s == '+') s++;
   if (!*s) return false;
+#ifdef __APPLE__
+  static locale_t c = newlocale(LC_ALL_MASK, "C", nullptr);
+  if (!(isdigit((unsigned char)*s) || *s == '-' || *s == '.')) return false;
+  char* end = nullptr;
+  errno = 0;
+  double v = strtod_l(s, &end, c);
+  if (end == s || errno == ERANGE) return false;
+  out = v;
+  return true;
+#else
   const char* end = s + strlen(s);
   auto res = std::from_chars(s, end, out);
   return res.ec == std::errc();
+#endif
 }
 
 std::string Base64Encode(const uint8_t* data, size_t len)
