@@ -25,6 +25,8 @@ build/Release/aafdump.exe in.aaf            # object tree of any AAF
 
 ## Architecture
 
+macOS: the same sources build a universal (arm64 + x86_64, macOS 10.15+) `.dylib` and CLIs; CI (`.github/workflows/build.yml`) builds and tests on `windows-latest` and `macos-latest` and a `v*` tag releases both zips (`-win64`, `-macos`). On macOS `reaper_plugin.h` includes Cockos' SWELL headers (`third_party/WDL/swell`, unmodified, zlib license) and `swell-modstub.mm` (with `SWELL_PROVIDED_BY_APP`) looks up the Win32-like functions in REAPER at load time; `reaper_ext.cpp`'s menu code uses only calls SWELL has (`GetMenuItemInfo`, `InsertMenuItem`, ...). Apple's libc++ lacks floating-point `to_chars`/`from_chars` before macOS 13.3, so `util.cpp` formats/parses doubles with `snprintf_l`/`strtod_l` in the C locale there. `tools/make_package.py` ad-hoc signs the macOS binaries. Not yet tried inside REAPER on a Mac.
+
 Sources are in `src/`, CLIs in `cli/`. The workflow `.github/workflows/build.yml` builds LibAAF's aaftool, installs pyaaf2, tests, packages, and creates a release for `v*` tags.
 
 - Export commands are actions (a REAPER menu item runs an action) registered by `RegisterExportCommands` (`reaper_ext.cpp`, one copy per plug-in), which also adds them to the default File menu from `hookcustommenu` ("Main file", flag 0), after *Export project MIDI...* (40849), else after *Render...* (40015), else at the end; both DLLs' entries stay together. A user-customized File menu does not get them automatically. Command IDs are unchanged from before the move to the File menu (`_DAWPROJECT_EXPORT`, `_DAWPROJECT_EXPORT_AAF`, `_DAWPROJECT_EXPORT_AAF_EMBED`).
